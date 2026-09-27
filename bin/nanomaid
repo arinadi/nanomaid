@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+HOME_DIR="${HOME:-/home/ubuntu}"
+ROOT="${NANOMAID_ROOT:-$HOME_DIR/nanomaid}"
+NODE_BIN="$HOME_DIR/.local/opt/node-v24.21.0/bin"
+APP_DIR="$HOME_DIR/.local/share/nanomaid/app"
+COLAB_VENV="$HOME_DIR/.local/share/nanomaid/colab-venv"
+COLAB_HOME="$HOME_DIR/.local/share/nanomaid/colab-home"
+BOT_HOME="$HOME_DIR/.config/opencode-telegram-bot"
+BOT_CLI="$APP_DIR/node_modules/.bin/opencode-telegram"
+
+export PATH="$NODE_BIN:$HOME_DIR/.local/bin:$PATH"
+export OPENCODE_TELEGRAM_HOME="$BOT_HOME"
+
+usage() {
+  cat <<'EOF'
+NanoMaid commands:
+  nanomaid configure       Securely configure Telegram/OpenCode credentials (interactive)
+  nanomaid start           Run the bot in the foreground
+  nanomaid status|stop     Inspect or stop the bot's built-in daemon (systemd is preferred)
+  nanomaid enable          Enable the nanomaid.service after config and foreground test
+  nanomaid colab-auth      Authenticate Colab CLI locally with the isolated OAuth profile
+  nanomaid colab <args>    Call Colab CLI with isolated HOME and explicit OAuth mode
+  nanomaid verify <args>   Plan or run an approved temporary Colab code-verification job
+  nanomaid check           Check prerequisites and service/config state
+EOF
+}
+
+need_bot() {
+  if [[ ! -x "$BOT_CLI" ]]; then
+    echo "NanoMaid bot package is not installed. Run the installer first." >&2
+    exit 1
+  fi
+}
+
+cmd="${1:-help}"
+if (($# > 0)); then shift; fi
+
+case "$cmd" in
+  configure|config)
+    need_bot
+    if [[ ! -t 0 || ! -t 1 ]]; then
+      echo "Configuration needs a local interactive terminal; do not pass secrets in chat or command arguments." >&2
+      exit 2
+    fi
+    install -d -m 700 "$BOT_HOME"
+    if [[ ! -e "$BOT_HOME/.env" ]]; then
+      install -m 600 "$ROOT/templates/model.env" "$BOT_HOME/.env"
+    else
+      chmod 600 "$BOT_HOME/.env"
+    fi
+    "$BOT_CLI" config "$@"
+    chmod 600 "$BOT_HOME/.env"
+    ;;
+  start|status|stop)
+    need_bot
+    exec "$BOT_CLI" "$cmd" "$@"
+    ;;
+  enable)
+    "$ROOT/check.sh" --require-config
+    exec systemctl --user enable --now nanomaid.service
+    ;;
+  colab-auth)
+    if [[ ! -x "$COLAB_VENV/bin/colab" ]]; then
+      echo "Colab CLI is not installed; run the installer first." >&2
+      exit 1
+    fi
+    if [[ ! -t 0 || ! -t 1 ]]; then
+      echo "Colab OAuth setup needs a local interactive terminal; do not paste auth codes into chat." >&2
+      exit 2
+    fi
+    install -d -m 700 "$COLAB_HOME"
+    exec env HOME="$COLAB_HOME" "$COLAB_VENV/bin/colab" --auth=oauth2 sessions "$@"
+    ;;
+  colab)
+    if [[ ! -x "$COLAB_VENV/bin/colab" ]]; then
+      echo "Colab CLI is not installed; run the installer first." >&2
+      exit 1
+    fi
+    install -d -m 700 "$COLAB_HOME"
+    exec env HOME="$COLAB_HOME" "$COLAB_VENV/bin/colab" --auth=oauth2 "$@"
+    ;;
+  verify)
+    exec "$ROOT/scripts/colab-verify.sh" "$@"
+    ;;
+  check)
+    exec "$ROOT/check.sh" "$@"
+    ;;
+  help|-h|--help)
+    usage
+    ;;
+  *)
+    usage >&2
+    exit 2
+    ;;
+esac

@@ -1,0 +1,12 @@
+{
+  "name": "nanomaid-installer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Reproducible installer for NanoMaid on a small Ubuntu VPS",
+  "engines": {
+    "node": "24.21.0"
+  },
+  "dependencies": {
+    "@grinev/opencode-telegram-bot": "0.26.0"
+  }
+}

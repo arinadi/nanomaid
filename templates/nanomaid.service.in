@@ -1,0 +1,25 @@
+[Unit]
+Description=NanoMaid Telegram wrapper for OpenCode
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=HOME=@HOME@
+Environment=PATH=@NODE_BIN@:@LOCAL_BIN@:/usr/local/bin:/usr/bin:/bin
+Environment=OPENCODE_TELEGRAM_HOME=@BOT_HOME@
+WorkingDirectory=@HOME@
+ExecStart=@NANOMAID_BIN@ start
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=default.target
