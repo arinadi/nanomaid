@@ -2,6 +2,8 @@
 Description=NanoMaid Telegram wrapper for OpenCode
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -11,15 +13,8 @@ Environment=OPENCODE_TELEGRAM_HOME=@BOT_HOME@
 WorkingDirectory=@HOME@
 ExecStart=@NANOMAID_BIN@ start
 Restart=on-failure
-RestartSec=5
+RestartSec=10
 UMask=0077
-NoNewPrivileges=true
-PrivateTmp=true
-ProtectSystem=full
-ProtectKernelTunables=true
-ProtectKernelModules=true
-ProtectControlGroups=true
-RestrictSUIDSGID=true
 
 [Install]
 WantedBy=default.target
