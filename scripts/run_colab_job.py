@@ -142,3 +142,7 @@ def main() -> int:
                     print(f"WARNING: Colab still lists session {session}; verify and stop it manually.", file=sys.stderr)
         archive.unlink(missing_ok=True)
         job_file.unlink(missing_ok=True)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
