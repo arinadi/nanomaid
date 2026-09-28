@@ -21,7 +21,7 @@ cd nanomaid
 ./install.sh
 ```
 
-The installer uses pinned, user-local tools. It does not enter credentials or enable/start the service. It also changes the global OpenCode `shell` and `edit` permission policies to `ask`; this affects every client sharing that OpenCode configuration, including TUI and desktop.
+The installer uses pinned, user-local tools. It does not enter credentials or enable/start the service. It also changes the global OpenCode `shell` and `edit` permission policies to `ask`; this affects every client sharing that OpenCode configuration, including TUI and desktop. Use `~/.local/bin/nanomaid doctor` to diagnose and repair safe local settings; it asks before running the installer for dependency or global-config repairs.
 
 In a real local terminal, configure the Telegram token, owner ID, and OpenCode password interactively. Never paste credentials or OAuth codes into Telegram or commit them:
 
@@ -51,7 +51,7 @@ Check the service with `~/.local/bin/nanomaid status` and view logs with `journa
 - User-level `systemd` with lingering already enabled
 - No Docker, public listener, or firewall changes
 
-The installer pins Node.js, uv, the Telegram wrapper, and Google Colab CLI. It uses user-local tools only and does not require apt/sudo. It is safe to re-run and has dry-run/check modes. NPM lifecycle scripts are disabled; the pinned wrapper release includes a Linux SQLite prebuild, which is smoke-tested during validation. It does not install or configure OpenCode providers, store secrets in this repository, or publish a remote Git repository.
+The installer pins Node.js, uv, the Telegram wrapper, and Google Colab CLI. It uses user-local tools only and does not require apt/sudo. It is safe to re-run and has dry-run/doctor modes. NPM lifecycle scripts are disabled; the pinned wrapper release includes a Linux SQLite prebuild, which is smoke-tested during validation. It does not install or configure OpenCode providers, store secrets in this repository, or publish a remote Git repository.
 
 ## Sequence diagrams
 
@@ -181,6 +181,6 @@ Colab is not Docker or a persistent bot host. Free-tier capacity and policy are 
 - The app token and OpenCode V2 password live only in the local bot config (`~/.config/opencode-telegram-bot/.env`) with mode `0600`; never commit that file.
 - Disable group joining for the bot in BotFather; the installer cannot change BotFather settings. The installer sets `umask 077` for secret setup.
 - OpenCode global shell and file-edit actions require approval; this also affects TUI/desktop clients sharing the service.
-- The installer merges only a marked NanoMaid block into global `AGENTS.md`, preserving the existing rules and creating a mode-0600 backup before edits. `./check.sh` verifies the block; the uninstaller preserves it with the rest of OpenCode config.
+- The installer merges only a marked NanoMaid block into global `AGENTS.md`, preserving the existing rules and creating a mode-0600 backup before edits. `nanomaid doctor` verifies it and asks before running the installer to repair global state; the uninstaller preserves it with the rest of OpenCode config.
 - Local JSON shell commands, scheduled tasks, and the bot's OpenCode start/stop controls remain unused.
-- `./check.sh` checks prerequisites and service health. `./uninstall.sh` stops/removes NanoMaid's service and runtime but preserves credentials, OpenCode sessions/config, and user lingering.
+- `nanomaid doctor` checks prerequisites and service health. It never enables/starts the bot service or uses sudo. `./uninstall.sh` stops/removes NanoMaid's service and runtime but preserves credentials, OpenCode sessions/config, and user lingering.

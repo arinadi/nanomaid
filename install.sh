@@ -28,6 +28,8 @@ die() { printf 'NanoMaid installer: %s\n' "$*" >&2; exit 1; }
 say() { printf 'NanoMaid installer: %s\n' "$*"; }
 
 preflight() {
+  [[ ! -L "$BOT_HOME/.env" ]] || die "Bot config is a symlink at $BOT_HOME/.env; refusing to change its target."
+  [[ ! -e "$BOT_HOME/.env" || -f "$BOT_HOME/.env" ]] || die "Bot config is not a regular file at $BOT_HOME/.env; refusing to change it."
   [[ "$USER_NAME" != root ]] || die 'Run as the normal user, not root.'
   [[ -r /etc/os-release ]] || die 'Cannot read /etc/os-release.'
   # shellcheck disable=SC1091
@@ -60,12 +62,13 @@ Would not enter credentials, authenticate Google, enable/start the service, chan
 EOF
     exit 0
     ;;
-  --check)
-    exec "$ROOT/check.sh"
+  --doctor)
+    shift
+    exec "$ROOT/doctor.sh" "$@"
     ;;
   install)
     ;;
-  *) die 'Usage: ./install.sh [--dry-run|--check]' ;;
+  *) die 'Usage: ./install.sh [--dry-run|--doctor]' ;;
 esac
 
 preflight
@@ -126,7 +129,7 @@ if [[ -e "$LOCAL_BIN/nanomaid" && ! -L "$LOCAL_BIN/nanomaid" ]]; then
   die "$LOCAL_BIN/nanomaid exists and is not a symlink; refusing to overwrite."
 fi
 ln -sfn "$ROOT/bin/nanomaid" "$LOCAL_BIN/nanomaid"
-chmod 755 "$ROOT/bin/nanomaid" "$ROOT/install.sh" "$ROOT/check.sh" "$ROOT/uninstall.sh" "$ROOT/scripts/colab-verify.sh"
+chmod 755 "$ROOT/bin/nanomaid" "$ROOT/install.sh" "$ROOT/doctor.sh" "$ROOT/uninstall.sh" "$ROOT/scripts/colab-verify.sh"
 
 install -d -m 700 "$BOT_HOME"
 if [[ ! -e "$BOT_HOME/.env" ]]; then

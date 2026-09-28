@@ -24,7 +24,7 @@ NanoMaid commands:
   nanomaid colab-auth      Authenticate Colab CLI locally with the isolated OAuth profile
   nanomaid colab <args>    Call Colab CLI with isolated HOME and explicit OAuth mode
   nanomaid verify <args>   Plan or run an approved temporary Colab code-verification job
-  nanomaid check           Check prerequisites and service/config state
+  nanomaid doctor          Check and repair NanoMaid prerequisites and config
 EOF
 }
 
@@ -59,7 +59,7 @@ case "$cmd" in
     exec "$BOT_CLI" "$cmd" "$@"
     ;;
   enable)
-    "$ROOT/check.sh" --require-config
+    "$ROOT/doctor.sh" --require-config
     exec systemctl --user enable --now nanomaid.service
     ;;
   colab-auth)
@@ -85,8 +85,8 @@ case "$cmd" in
   verify)
     exec "$ROOT/scripts/colab-verify.sh" "$@"
     ;;
-  check)
-    exec "$ROOT/check.sh" "$@"
+  doctor)
+    exec "$ROOT/doctor.sh" "$@"
     ;;
   help|-h|--help)
     usage

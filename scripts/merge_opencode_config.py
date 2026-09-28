@@ -68,6 +68,8 @@ def main() -> int:
     args = parser.parse_args()
     path, jsonc_path = config_paths()
     try:
+        if path.is_symlink():
+            raise RuntimeError(f"Refusing to modify symlinked global OpenCode config: {path}")
         if args.verify:
             if not path.is_file():
                 raise RuntimeError(f"Global OpenCode config is missing: {path}")
