@@ -11,7 +11,7 @@ COLAB_HOME="$HOME_DIR/.local/share/nanomaid/colab-home"
 BOT_HOME="$HOME_DIR/.config/opencode-telegram-bot"
 BOT_CLI="$APP_DIR/node_modules/.bin/opencode-telegram"
 
-export PATH="$NODE_BIN:$HOME_DIR/.local/bin:$PATH"
+export PATH="$NODE_BIN:$HOME_DIR/.local/bin:$HOME_DIR/.opencode/bin:$PATH"
 export OPENCODE_TELEGRAM_HOME="$BOT_HOME"
 
 usage() {
