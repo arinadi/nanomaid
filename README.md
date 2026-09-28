@@ -94,6 +94,9 @@ sequenceDiagram
     participant Bot as NanoMaid
     participant OpenCode as OpenCode V2 API
     participant Provider as Configured model provider
+    participant Helper as Colab verification helper
+    participant CLI as Isolated Colab CLI
+    participant Colab as Temporary Colab runtime
 
     Owner->>Telegram: Send a private-chat request
     Telegram->>Bot: Deliver update
@@ -114,7 +117,47 @@ sequenceDiagram
         OpenCode-->>Bot: Continue or cancel request
         Bot-->>Telegram: Send result
     end
+
+    opt Owner requests one-shot code verification
+        Owner->>Telegram: Request lint/build/test for a project
+        Telegram->>Bot: Deliver verification request
+        Bot->>OpenCode: Route request to OpenCode
+        OpenCode->>Helper: Prepare archive and argv command plan
+        Helper-->>OpenCode: Filtered manifest, SHA-256, exact commands
+        OpenCode-->>Bot: Present plan and source-transfer notice
+        Bot-->>Telegram: Show manifest, hash, commands, cost/policy warning
+        Owner->>Telegram: Approve this job once
+        Telegram->>Bot: One-time approval
+        Bot->>OpenCode: Submit shell permission approval
+        OpenCode->>Helper: Run approved job ID and archive hash
+        Helper->>CLI: Check Colab usage and rate
+        CLI-->>Helper: Confirm zero-cost usage
+        alt Free use and policy checks pass
+            Helper->>CLI: Create uniquely named temporary session
+            CLI->>Colab: Allocate CPU-only session
+            Helper->>CLI: Upload reviewed archive and job manifest
+            CLI->>Colab: Transfer approved files and commands
+            Colab->>Colab: Run approved argv commands only
+            Colab-->>CLI: Complete verification and text log
+            CLI->>Colab: Download result log
+            Colab-->>CLI: Return text results
+            CLI->>Colab: Stop temporary session
+            Colab-->>CLI: Return stop status
+            CLI->>CLI: Verify session stopped
+            CLI-->>Helper: Return log and cleanup status
+            Helper->>Helper: Delete local archive and job staging
+            Helper-->>OpenCode: Return text logs
+            OpenCode-->>Bot: Summarize verification result
+            Bot-->>Telegram: Send text result
+        else Cost or policy is paid or unclear
+            Helper-->>OpenCode: Abort without creating a session
+            OpenCode-->>Bot: Report verification was not run
+            Bot-->>Telegram: Explain the check failed closed
+        end
+    end
 ```
+
+Colab is only for user-approved, one-shot CPU lint/build/test checks. Only reviewed project files and command arguments are sent to Google; no credentials or unrelated finance/transcription data. No paid compute, GPU/TPU/high-memory, Drive mount, or persistent sessions. The flow is invoked through OpenCode, not a separate Telegram job runner; if cost or policy is unclear, no session is started.
 
 ## Colab code verification
 
