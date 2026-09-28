@@ -16,16 +16,19 @@ from pathlib import Path
 SKIP_DIRS = {
     ".git", ".nanomaid", ".venv", ".tox", ".mypy_cache", ".pytest_cache",
     ".ruff_cache", ".next", "node_modules", "__pycache__", "coverage",
-    "dist", "build", "target", "vendor",
+    ".ipynb_checkpoints", "dist", "build", "target", "vendor",
 }
 SKIP_NAMES = {".npmrc", ".pypirc", "credentials.json", "service-account.json"}
 SKIP_SUFFIXES = {
     ".pem", ".key", ".p12", ".pfx", ".jks", ".mp3", ".wav", ".m4a",
-    ".aac", ".ogg", ".opus", ".flac", ".mp4", ".mov", ".webm", ".sqlite",
-    ".db",
+    ".aac", ".ogg", ".opus", ".flac", ".mp4", ".mov", ".webm", ".mkv",
+    ".avi", ".mpeg", ".mpg", ".m4v", ".3gp", ".jpg", ".jpeg", ".png",
+    ".gif", ".bmp", ".tif", ".tiff", ".webp", ".heic", ".sqlite", ".db",
+    ".zip", ".tar", ".gz", ".7z", ".rar",
 }
 SENSITIVE_PART = re.compile(r"(secret|credential|token|private.?key)", re.IGNORECASE)
 MAX_ARCHIVE_BYTES = 100 * 1024 * 1024
+ACCELERATORS = {"CPU", "T4"}
 
 
 def excluded(relative: Path, is_dir: bool) -> bool:
@@ -50,25 +53,34 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def load_job_spec(path: Path) -> tuple[list[list[str]], str]:
+    """Load reviewed argv arrays and their requested accelerator."""
+    command_spec = json.loads(path.read_text(encoding="utf-8"))
+    commands = command_spec["commands"]
+    accelerator = command_spec.get("accelerator", "CPU")
+    if not isinstance(commands, list) or not commands:
+        raise ValueError("commands must be a non-empty array of argument arrays")
+    for command in commands:
+        if not isinstance(command, list) or not command or any(not isinstance(arg, str) or not arg for arg in command):
+            raise ValueError("each command must be a non-empty array of non-empty strings (no shell string)")
+    if not isinstance(accelerator, str) or accelerator not in ACCELERATORS:
+        raise ValueError(f"accelerator must be one of {sorted(ACCELERATORS)}")
+    return commands, accelerator
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("project", type=Path)
-    parser.add_argument("commands_json", type=Path, help="JSON object with commands:[[argv...], ...]")
+    parser.add_argument("commands_json", type=Path, help='JSON object with "commands" argv arrays and optional "accelerator": "T4"')
     args = parser.parse_args()
 
     project = args.project.resolve(strict=True)
     if not project.is_dir():
         parser.error("project must be a directory")
     try:
-        command_spec = json.loads(args.commands_json.read_text(encoding="utf-8"))
-        commands = command_spec["commands"]
+        commands, accelerator = load_job_spec(args.commands_json)
     except (OSError, ValueError, KeyError, TypeError) as error:
         parser.error(f"invalid commands JSON: {error}")
-    if not isinstance(commands, list) or not commands:
-        parser.error("commands must be a non-empty array of argument arrays")
-    for command in commands:
-        if not isinstance(command, list) or not command or any(not isinstance(arg, str) or not arg for arg in command):
-            parser.error("each command must be a non-empty array of non-empty strings (no shell string)")
 
     job_id = uuid.uuid4().hex[:12]
     job_dir = Path.home() / ".local/share/nanomaid/jobs" / job_id
@@ -100,6 +112,7 @@ def main() -> int:
     job = {
         "job_id": job_id,
         "project_name": project.name,
+        "accelerator": accelerator,
         "archive_sha256": sha256(archive),
         "commands": commands,
         "timeout_seconds": 1800,
@@ -110,9 +123,11 @@ def main() -> int:
     os.chmod(job_file, 0o600)
 
     print(f"Job: {job_id}")
+    print(f"Accelerator: {accelerator}")
     print(f"Archive: {archive}")
     print(f"SHA-256: {job['archive_sha256']}")
     print(f"Archive size: {archive.stat().st_size} bytes; source files: {len(manifest)}")
+    print(f"Job manifest SHA-256: {sha256(job_file)}")
     print("Commands (argument arrays; not shell strings):")
     print(json.dumps(commands, indent=2))
     print("Files staged for review (secrets, media, dependencies, and build outputs excluded):")

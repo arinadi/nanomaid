@@ -55,28 +55,44 @@ def run_cli(cli: Path, cli_home: Path, *args: str, timeout: int = 1800) -> subpr
     return subprocess.CompletedProcess(command, return_code, stdout, None)
 
 
-def require_free_usage(cli: Path, cli_home: Path) -> None:
+def read_colab_usage(cli: Path, cli_home: Path) -> tuple[float, float | None]:
     result = run_cli(cli, cli_home, "usage", timeout=60)
-    print("Colab usage/cost preflight:")
-    print(result.stdout[-4000:])
     if result.returncode != 0:
         raise RuntimeError("Could not verify Colab usage; refusing the job.")
     balance = re.search(r"Current balance:\s*([0-9]+(?:\.[0-9]+)?)\s*compute units", result.stdout, re.I)
     rate = re.search(r"Usage rate:\s*([0-9]+(?:\.[0-9]+)?)\s*(?:compute units?/?h|CU/?h|/hr)", result.stdout, re.I)
-    if balance is None or rate is None:
-        raise RuntimeError("Colab usage output format is unknown; refusing the job to avoid charges.")
-    if float(balance.group(1)) != 0 or float(rate.group(1)) != 0:
-        raise RuntimeError("Colab reports non-zero compute-unit balance/rate; no-paid policy blocks this job.")
+    if balance is None:
+        raise RuntimeError("Colab paid-unit balance is missing; refusing the job.")
+    balance_units = float(balance.group(1))
+    rate_per_hour = float(rate.group(1)) if rate is not None else None
+    if balance_units < 0 or (rate_per_hour is not None and rate_per_hour < 0):
+        raise RuntimeError("Colab reported invalid usage values; refusing the job.")
+    rate_text = f"{rate_per_hour:.2f} CU/hr" if rate_per_hour is not None else "not reported"
+    print(f"Colab usage: balance={balance_units:.2f} CU, rate={rate_text}")
+    return balance_units, rate_per_hour
+
+
+def require_zero_paid_balance(balance_units: float) -> None:
+    if balance_units != 0:
+        raise RuntimeError("NanoMaid only permits zero paid-unit balance; refusing the job.")
+
+
+def require_t4_session(cli: Path, cli_home: Path, session: str) -> None:
+    result = run_cli(cli, cli_home, "status", "-s", session, timeout=60)
+    if result.returncode != 0 or not re.search(r"\bT4\b", result.stdout, re.I):
+        raise RuntimeError("Colab did not confirm a T4 runtime; refusing to upload source.")
+    print("Colab hardware preflight: T4 confirmed")
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("job_id")
     parser.add_argument("archive_sha256")
-    parser.add_argument("--free-confirmed", action="store_true", help="acknowledge the reviewed zero-cost preflight")
+    parser.add_argument("job_sha256")
+    parser.add_argument("--free-confirmed", action="store_true", help="acknowledge the reviewed zero-paid-balance/T4 preflight")
     args = parser.parse_args()
     if not args.free_confirmed:
-        parser.error("include --free-confirmed only after reviewing the archive/commands and zero-cost status")
+        parser.error("include --free-confirmed only after reviewing the archive/commands and zero paid-unit balance")
 
     home = Path.home()
     state = home / ".local/share/nanomaid"
@@ -86,25 +102,43 @@ def main() -> int:
     cli = state / "colab-venv/bin/colab"
     cli_home = state / "colab-home"
     if not job_file.is_file() or not archive.is_file() or not cli.is_file():
+        archive.unlink(missing_ok=True)
+        job_file.unlink(missing_ok=True)
         raise SystemExit("Job staging or Colab CLI missing; run `nanomaid verify plan` first.")
-    job = json.loads(job_file.read_text(encoding="utf-8"))
-    actual_hash = sha256(archive)
-    if actual_hash != args.archive_sha256 or actual_hash != job.get("archive_sha256"):
-        raise SystemExit("Archive hash mismatch; re-plan and review the source manifest.")
-    print(f"Approved job {args.job_id}; archive SHA-256 {actual_hash}")
-    print("Commands:")
-    print(json.dumps(job["commands"], indent=2))
-
-    require_free_usage(cli, cli_home)
     session = f"nanomaid-{args.job_id[:8]}"
     session_attempted = False
     result_path = job_dir / "result.txt"
     try:
+        job = json.loads(job_file.read_text(encoding="utf-8"))
+        actual_hash = sha256(archive)
+        if actual_hash != args.archive_sha256 or actual_hash != job.get("archive_sha256"):
+            raise SystemExit("Archive hash mismatch; re-plan and review the source manifest.")
+        actual_job_hash = sha256(job_file)
+        if actual_job_hash != args.job_sha256:
+            raise SystemExit("Job manifest hash mismatch; re-plan and review commands/accelerator.")
+        accelerator = job.get("accelerator", "CPU")
+        if not isinstance(accelerator, str) or accelerator not in {"CPU", "T4"}:
+            raise SystemExit("Unsupported accelerator in job manifest.")
+        print(f"Approved job {args.job_id}; archive SHA-256 {actual_hash}")
+        print(f"Job manifest SHA-256 {actual_job_hash}; accelerator {accelerator}")
+        print("Commands:")
+        print(json.dumps(job["commands"], indent=2))
+
+        balance_before, _ = read_colab_usage(cli, cli_home)
+        require_zero_paid_balance(balance_before)
         session_attempted = True
-        created_result = run_cli(cli, cli_home, "new", "-s", session, timeout=180)
+        create_args = ["new", "-s", session]
+        if accelerator == "T4":
+            create_args.extend(["--gpu", "T4"])
+        created_result = run_cli(cli, cli_home, *create_args, timeout=180)
         print(created_result.stdout[-4000:])
         if created_result.returncode != 0:
             raise RuntimeError("Colab session allocation failed.")
+
+        balance_after_allocation, _ = read_colab_usage(cli, cli_home)
+        require_zero_paid_balance(balance_after_allocation)
+        if accelerator == "T4":
+            require_t4_session(cli, cli_home, session)
 
         for local, remote in (
             (archive, "/content/nanomaid-source.tar.gz"),
@@ -123,6 +157,9 @@ def main() -> int:
         if execution.returncode != 0:
             raise RuntimeError(f"Colab verification failed (exit {execution.returncode}).")
 
+        balance_after_job, _ = read_colab_usage(cli, cli_home)
+        require_zero_paid_balance(balance_after_job)
+
         downloaded = run_cli(
             cli, cli_home, "download", "-s", session, "/content/nanomaid-result.txt", str(result_path), timeout=300
         )
@@ -136,10 +173,19 @@ def main() -> int:
             print(stopped.stdout[-2000:])
             if stopped.returncode != 0:
                 print(f"WARNING: stop the Colab session manually: {session}", file=sys.stderr)
-            else:
-                listed = run_cli(cli, cli_home, "sessions", timeout=60)
-                if listed.returncode == 0 and session in listed.stdout:
-                    print(f"WARNING: Colab still lists session {session}; verify and stop it manually.", file=sys.stderr)
+            listed = run_cli(cli, cli_home, "sessions", timeout=60)
+            if listed.returncode != 0:
+                print(f"WARNING: could not verify Colab session cleanup: {session}", file=sys.stderr)
+            elif session in listed.stdout:
+                print(f"WARNING: Colab still lists session {session}; stop it manually.", file=sys.stderr)
+            elif stopped.returncode == 0:
+                print(f"Colab session stopped and verified: {session}")
+            try:
+                final_balance, _ = read_colab_usage(cli, cli_home)
+                if final_balance != 0:
+                    print(f"WARNING: paid compute balance is no longer zero ({final_balance:.2f} CU).", file=sys.stderr)
+            except RuntimeError as error:
+                print(f"WARNING: could not verify final Colab balance: {error}", file=sys.stderr)
         archive.unlink(missing_ok=True)
         job_file.unlink(missing_ok=True)
 

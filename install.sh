@@ -4,6 +4,7 @@ umask 077
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 HOME_DIR="${HOME:-/home/ubuntu}"
+XDG_CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME_DIR/.config}"
 USER_NAME="$(id -un)"
 OPENCODE_BIN="$(command -v opencode 2>/dev/null || echo "$HOME_DIR/.opencode/bin/opencode")"
 MODE="${1:-install}"
@@ -21,6 +22,7 @@ BOT_HOME="$HOME_DIR/.config/opencode-telegram-bot"
 LOCAL_BIN="$HOME_DIR/.local/bin"
 SERVICE_DIR="$HOME_DIR/.config/systemd/user"
 SERVICE_FILE="$SERVICE_DIR/nanomaid.service"
+OPENCODE_CONFIG_DIR="$XDG_CONFIG_DIR/opencode"
 
 die() { printf 'NanoMaid installer: %s\n' "$*" >&2; exit 1; }
 say() { printf 'NanoMaid installer: %s\n' "$*"; }
@@ -52,8 +54,8 @@ case "$MODE" in
     preflight
     cat <<EOF
 Dry run only; no changes made.
-Would install Node.js ${NODE_VERSION}, uv ${UV_VERSION}, Telegram wrapper ${TELEGRAM_WRAPPER_VERSION}, and Colab CLI ${COLAB_CLI_VERSION} under user-local paths.
-Would prepare bot config with mode 0600, global OpenCode shell/edit ask rules, Colab skill, and nanomaid.service.
+  Would install Node.js ${NODE_VERSION}, uv ${UV_VERSION}, Telegram wrapper ${TELEGRAM_WRAPPER_VERSION}, and Colab CLI ${COLAB_CLI_VERSION} under user-local paths.
+  Would prepare bot config with mode 0600, global OpenCode shell/edit ask rules, Colab skill, NanoMaid AGENTS block, and nanomaid.service.
 Would not enter credentials, authenticate Google, enable/start the service, change lingering, or open a port.
 EOF
     exit 0
@@ -137,13 +139,26 @@ python3 "$ROOT/scripts/merge_opencode_config.py"
 [[ -x "$OPENCODE_BIN" ]] || die "OpenCode binary not found at $OPENCODE_BIN."
 "$OPENCODE_BIN" api post /api/location/reload >/dev/null
 python3 "$ROOT/scripts/merge_opencode_config.py" --verify
-skill_dir="$HOME_DIR/.config/opencode/skills/colab"
+skill_dir="$OPENCODE_CONFIG_DIR/skills/colab"
 install -d -m 700 "$skill_dir"
 skill_target="$skill_dir/SKILL.md"
 if [[ -e "$skill_target" ]] && ! cmp -s "$ROOT/skills/colab/SKILL.md" "$skill_target"; then
-  die "An existing Colab skill differs at $skill_target; refusing to overwrite."
+  installed_skill_sha256="$(sha256sum "$skill_target" | awk '{print $1}')"
+  case "$installed_skill_sha256" in
+    e2454ca59cc3462fd450257694c9806e80f54134f9a487ca6d58c992abf4ea5a|\
+    1cdb4672d66c5eb1fe694822debae3cc7ea667e11a9a00b473458fd8253b655e|\
+    c807e23f50ba3f9956cc3d8e269c2f34701587b5e8ca7c398595e7a050bbef20)
+      ;;
+    *)
+    die "An existing Colab skill differs at $skill_target and is not the known prior NanoMaid version; refusing to overwrite."
+      ;;
+  esac
 fi
 install -m 600 "$ROOT/skills/colab/SKILL.md" "$skill_target"
+python3 "$ROOT/scripts/merge_agents.py" install \
+  --target "$OPENCODE_CONFIG_DIR/AGENTS.md" \
+  --template "$ROOT/templates/AGENTS.nanomaid.md"
+"$OPENCODE_BIN" api post /api/location/reload >/dev/null
 
 python3 - "$ROOT/templates/nanomaid.service.in" "$SERVICE_FILE" "$USER_NAME" "$HOME_DIR" "$NODE_BIN" "$LOCAL_BIN" <<'PY'
 import os

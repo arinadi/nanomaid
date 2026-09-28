@@ -15,7 +15,7 @@ case "${1:-}" in
     cat >&2 <<'EOF'
 Usage:
   nanomaid verify plan PROJECT_DIR COMMANDS.json
-  nanomaid verify run JOB_ID ARCHIVE_SHA256 --free-confirmed
+  nanomaid verify run JOB_ID ARCHIVE_SHA256 JOB_SHA256 --free-confirmed
 
 Plan prints an archive manifest; review it before approving a `run` shell request.
 Only argv arrays are accepted; command strings are never run through a shell.

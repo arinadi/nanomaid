@@ -2,6 +2,9 @@
 set -euo pipefail
 
 HOME_DIR="${HOME:-/home/ubuntu}"
+XDG_CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME_DIR/.config}"
+ROOT="${NANOMAID_ROOT:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)}"
+OPENCODE_CONFIG_DIR="$XDG_CONFIG_DIR/opencode"
 NODE_BIN="$HOME_DIR/.local/opt/node-v24.21.0/bin/node"
 APP_DIR="$HOME_DIR/.local/share/nanomaid/app"
 COLAB_BIN="$HOME_DIR/.local/share/nanomaid/colab-venv/bin/colab"
@@ -62,6 +65,22 @@ if [[ -x "$COLAB_BIN" ]] && "$COLAB_BIN" version 2>/dev/null | grep -q '0.7.4'; 
   pass 'pinned Colab CLI 0.7.4 installed'
 else
   fail 'Colab CLI 0.7.4 missing'
+fi
+
+COLAB_SKILL_SOURCE="$ROOT/skills/colab/SKILL.md"
+COLAB_SKILL_TARGET="$OPENCODE_CONFIG_DIR/skills/colab/SKILL.md"
+if [[ -f "$COLAB_SKILL_SOURCE" && -f "$COLAB_SKILL_TARGET" ]] && cmp -s "$COLAB_SKILL_SOURCE" "$COLAB_SKILL_TARGET"; then
+  pass 'global Colab skill matches NanoMaid source'
+else
+  fail 'global Colab skill missing or differs from NanoMaid source'
+fi
+
+if python3 "$ROOT/scripts/merge_agents.py" check \
+    --target "$OPENCODE_CONFIG_DIR/AGENTS.md" \
+    --template "$ROOT/templates/AGENTS.nanomaid.md" >/dev/null; then
+  pass 'global AGENTS.md contains the NanoMaid managed block'
+else
+  fail 'global AGENTS.md NanoMaid managed block missing or differs'
 fi
 
 if [[ -x "$UV_BIN" ]] && "$UV_BIN" --version | grep -q '0.12.19'; then

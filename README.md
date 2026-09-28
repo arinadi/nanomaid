@@ -134,7 +134,7 @@ sequenceDiagram
         CLI-->>Helper: Confirm zero-cost usage
         alt Free use and policy checks pass
             Helper->>CLI: Create uniquely named temporary session
-            CLI->>Colab: Allocate CPU-only session
+            CLI->>Colab: Allocate CPU or approved T4 session
             Helper->>CLI: Upload reviewed archive and job manifest
             CLI->>Colab: Transfer approved files and commands
             Colab->>Colab: Run approved argv commands only
@@ -157,20 +157,30 @@ sequenceDiagram
     end
 ```
 
-Colab is only for user-approved, one-shot CPU lint/build/test checks. Only reviewed project files and command arguments are sent to Google; no credentials or unrelated finance/transcription data. No paid compute, GPU/TPU/high-memory, Drive mount, or persistent sessions. The flow is invoked through OpenCode, not a separate Telegram job runner; if cost or policy is unclear, no session is started.
+Colab is for user-approved, one-shot code-verification checks only. CPU is the default; an optional T4 can be requested for a finite check when Colab allocates it and reports T4 hardware. NanoMaid requires zero paid-unit balance; a positive usage-rate meter by itself does not block a free allocation. No paid compute, TPU, high-memory runtime, Drive mount, persistent session, bot, web service, audio/image/video, or unrelated datasets. Only reviewed source files and exact argv commands are sent to Google. Free GPU availability is dynamic and not guaranteed; if T4 is not allocated, the job stops.
 
 ## Colab code verification
 
-Colab CLI is installed in an isolated Python environment. Run `~/.local/bin/nanomaid colab-auth` in a real terminal to authenticate your account into NanoMaid's isolated Colab home. Never paste the OAuth code or credentials into Telegram.
+Colab CLI is installed in an isolated Python environment. All CLI calls should go through `~/.local/bin/nanomaid colab ...`, which uses NanoMaid's isolated OAuth `HOME`; a raw `colab` call may use a different profile. Run `~/.local/bin/nanomaid colab-auth` in a real terminal to authenticate. Never paste the OAuth code or credentials into Telegram. Check account state with `~/.local/bin/nanomaid colab sessions` and `~/.local/bin/nanomaid colab usage`.
 
-For code verification, review the proposed project file manifest and exact lint/build/test commands before approving each upload/run. Only approved source files are sent to Google. The helper excludes environment files, keys, secrets, media, and datasets; the first version is CPU-only and returns text logs. Stop the temporary Colab session after every job.
+For code verification, create a command JSON using argv arrays (not shell strings), then run `~/.local/bin/nanomaid verify plan PROJECT_DIR COMMANDS.json`. CPU is selected when `accelerator` is omitted; set `"accelerator": "T4"` only for a finite check. Review the complete source manifest, archive SHA-256, job-manifest SHA-256, commands, and accelerator before approving each upload/run. The helper requires zero paid-unit balance, requests T4 only when approved in the job, verifies T4 before upload, and treats a positive hourly rate as informational. Execute the exact plan with `~/.local/bin/nanomaid verify run JOB_ID ARCHIVE_SHA256 JOB_SHA256 --free-confirmed`. It excludes environment files, keys, secrets, common media, and datasets; returns text logs; stops the temporary session; and deletes local staging.
 
-Colab is not Docker or a persistent bot host. Free-tier capacity and policy are not guaranteed. Finance/transcription bots and their input media remain separate and are not installed by this project.
+Example T4-only test manifest:
+
+```json
+{
+  "commands": [["python3", "-m", "unittest", "discover", "-s", "tests", "-v"]],
+  "accelerator": "T4"
+}
+```
+
+Colab is not Docker or a persistent bot host. Free-tier capacity and policy are not guaranteed; a T4 may be unavailable even when usage is zero. NanoMaid verification never hosts bots or web services. Finance/transcription bots and their input media remain separate and are not installed by this project.
 
 ## Security and rollback
 
 - The app token and OpenCode V2 password live only in the local bot config (`~/.config/opencode-telegram-bot/.env`) with mode `0600`; never commit that file.
 - Disable group joining for the bot in BotFather; the installer cannot change BotFather settings. The installer sets `umask 077` for secret setup.
 - OpenCode global shell and file-edit actions require approval; this also affects TUI/desktop clients sharing the service.
+- The installer merges only a marked NanoMaid block into global `AGENTS.md`, preserving the existing rules and creating a mode-0600 backup before edits. `./check.sh` verifies the block; the uninstaller preserves it with the rest of OpenCode config.
 - Local JSON shell commands, scheduled tasks, and the bot's OpenCode start/stop controls remain unused.
 - `./check.sh` checks prerequisites and service health. `./uninstall.sh` stops/removes NanoMaid's service and runtime but preserves credentials, OpenCode sessions/config, and user lingering.

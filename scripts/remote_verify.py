@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
-import os
 import subprocess
 import tarfile
 from pathlib import Path
@@ -25,8 +25,38 @@ def safe_extract(archive: Path, destination: Path) -> None:
         tar.extractall(destination, members=members, filter="data")
 
 
+def sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def require_t4() -> None:
+    try:
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
+            check=True, capture_output=True, text=True,
+        )
+    except (FileNotFoundError, subprocess.CalledProcessError) as error:
+        raise RuntimeError("T4 required; nvidia-smi could not verify a GPU") from error
+    names = [name.strip() for name in result.stdout.splitlines() if name.strip()]
+    if not any("t4" in name.lower() for name in names):
+        raise RuntimeError(f"T4 required; detected: {names or 'no GPU'}")
+    print(f"T4 verified: {', '.join(names)}")
+
+
 def main() -> int:
     job = json.loads(JOB_FILE.read_text(encoding="utf-8"))
+    accelerator = job.get("accelerator", "CPU")
+    if not isinstance(accelerator, str) or accelerator not in {"CPU", "T4"}:
+        raise ValueError("Unsupported accelerator in job manifest")
+    if sha256(ARCHIVE) != job.get("archive_sha256"):
+        raise ValueError("Source archive hash mismatch")
+    if accelerator == "T4":
+        require_t4()
+
     workspace = ROOT / "nanomaid-workspace"
     safe_extract(ARCHIVE, workspace)
     project = workspace / job["project_name"]
@@ -70,7 +100,8 @@ def main() -> int:
 
     RESULT.write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(RESULT.read_text(encoding="utf-8")[-200_000:])
-    raise SystemExit(overall)
+    return overall
 
 
-main()
+if __name__ == "__main__":
+    raise SystemExit(main())
